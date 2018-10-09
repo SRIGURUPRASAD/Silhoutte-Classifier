@@ -1,0 +1,143 @@
+library("xgboost")  
+library("archdata") 
+library("caret")    
+library("dplyr")    
+library("Ckmeans.1d.dp")
+library("e1071")
+set.seed(3001)
+NewData <-  read.csv(file.choose(), header = TRUE)
+
+NewData$Class <- as.numeric(NewData$Class)
+dat_add <- NewData[which(NewData$Class == 1),] %>%
+  rowwise() %>%
+  mutate_each(funs(./10 + rnorm(1,.,.*0.1))) %>%
+  mutate_each(funs(round(.,2))) %>%
+  mutate(Class = 3)
+
+BikeData <- rbind(NewData, dat_add) %>%
+  mutate(Class = Class - 1)
+summarise(BikeData)
+summary(BikeData)
+norm
+hist(BikeData$ELONGATEDNESS, breaks = 50, main = "EDA",xlab = "ELONGATENESS")
+hist(BikeData$DISTANCE_CIRCULARITY,breaks = 50 , main = "EDA",xlab = "DISTANCE_CIRCULARITY")
+hist(BikeData$RADIUS_RATIO ,breaks = 50 , main = "EDA",xlab = "RADIUS_RATIO")
+hist(BikeData$COMPACTNESS,breaks = 50 , main = "EDA",xlab = "COMPACTNESS")
+hist(BikeData$HOLLOWS_RATIO,breaks = 50 , main = "EDA",xlab = "HOLLOWS_RATIO")
+
+str(BikeData)
+
+train_index <- sample(1:nrow(dat), nrow(dat)*0.75)
+#indexing
+data_variables <- as.matrix(BikeData[,-19])
+data_label <- BikeData[,"Class"]
+data_matrix <- xgb.DMatrix(data = as.matrix(BikeData), label = data_label)
+str(data_matrix)
+######################################################
+
+# Check accuracy:
+table(pred, y)
+
+plot(cmdscale(dist(x)),col = as.integer(y),
+     pch = c("*","0")[1:75 %in% ModelSVM$index + 1])
+plot(cmdscale(dist(train_matrix)),col = as.integer(train_label),
+     pch = c("*","0")[1:75 %in% ModelSVM$index + 1])
+
+
+
+
+
+# split train data and make xgb.DMatrix
+train_data   <- data_variables[train_index,]
+train_label  <- data_label[train_index]
+train_matrix <- xgb.DMatrix(data = train_data, label = train_label)
+# split test data and make xgb.DMatrix
+test_data  <- data_variables[-train_index,]
+test_label <- data_label[-train_index]
+test_matrix <- xgb.DMatrix(data = test_data, label = test_label)
+
+numberOfClasses <- length(unique(BikeData$Class))
+xgb_params <- list("objective" = "multi:softprob",
+                   "eval_metric" = "mlogloss",
+                   "num_class" = numberOfClasses)
+nround    <- 50 # number of XGBoost rounds
+cv.nfold  <- 5
+
+# Fit cv.nfold * cv.nround XGB models and save OOF predictions
+cv_model <- xgb.cv(params = xgb_params,
+                   data = train_matrix, 
+                   nrounds = nround,
+                   nfold = cv.nfold,
+                   verbose = FALSE,
+                   prediction = TRUE)
+cv_model$pred
+
+OOF_prediction <- data.frame(cv_model$pred) %>%
+  mutate(max_prob = max.col(., ties.method = "last"),
+         label = train_label + 1)
+head(OOF_prediction)
+
+confusionMatrix(factor(OOF_prediction$max_prob),
+                factor(OOF_prediction$label),
+                mode = "everything")
+
+
+bst_model <- xgb.train(params = xgb_params,
+                       data = train_matrix,
+                       nrounds = nround)
+
+# Predict hold-out test set
+test_pred <- predict(bst_model, newdata = test_matrix)
+test_prediction <- matrix(test_pred, nrow = numberOfClasses,
+                          ncol=length(test_pred)/numberOfClasses) %>%
+  t() %>%
+  data.frame() %>%
+  mutate(label = test_label + 1,
+         max_prob = max.col(., "last"))
+# confusion matrix of test set
+confusionMatrix(factor(test_prediction$max_prob),
+                factor(test_prediction$label),
+                mode = "everything")
+
+names <-  colnames(BikeData[,-19])
+# compute feature importance matrix
+importance_matrix = xgb.importance(feature_names = names, model = bst_model)
+head(importance_matrix)
+
+gp = xgb.ggplot.importance(importance_matrix)
+print(gp) 
+
+plot(my.data[,-3],col=(ys+3)/2, pch=19); abline(h=0,v=0,lty=3)
+
+###############################################################################3
+
+x <- data_variables
+y <- data_label
+plot(x)
+
+trctrl <- trainControl(method = "repeatedcv", number = 50, repeats = 3)
+set.seed(3233)
+plot(Training_set$Class,pch=18)
+
+svm_Linear <- train(Class ~., data = train_matrix, method = "svmLinear",
+                    trControl=trctrl,
+                    preProcess = c("center", "scale"),
+                    tuneLength = 10)
+svm_Linear
+test_pred <- predict(svm_Linear, newdata = Test_set)
+test_pred
+confusionMatrix(test_pred, Test_set$Class )
+
+Tuned_parameters <- tune.svm(Class~., data = Training_set, gamma = 10^(-5:-1), cost = 10^(-3:1))
+summary(Tuned_parameters )
+svmmodel<- svm(class ~., data = Training_set,  kernel = "linear", gamma = 0.1, cost = 10)
+
+grid <- expand.grid(C = c(0,0.01, 0.05, 0.1, 0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2,5))
+set.seed(3233)
+svm_Linear_Grid <- train(Class~., data = Training_set, method = "svmLinear",
+                         trControl=trctrl,
+                         preProcess = c("center", "scale"),
+                         tuneGrid = grid,
+                         tuneLength = 10)
+svm_Linear_Grid
+plot(svm_Linear_Grid)
